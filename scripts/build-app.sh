@@ -17,7 +17,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-1.3.0}"
+VERSION="${VERSION:-1.3.1}"
 BUNDLE_ID="${BUNDLE_ID:-io.github.yuvalezrati.sugarcane}"
 MIN_MACOS="12.0"
 DEVELOPER_ID="${DEVELOPER_ID:-}"

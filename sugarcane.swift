@@ -135,7 +135,7 @@ func directionFromDelta(_ deltaPer5Min: Double) -> String {
 // MARK: - Theme (the panel's molasses look; the menu bar keeps the system colors)
 
 enum Theme {
-    static let panel = NSColor(srgbRed: 0.224, green: 0.165, blue: 0.114, alpha: 1)       // molasses brown
+    static let panel = NSColor(srgbRed: 0.141, green: 0.102, blue: 0.071, alpha: 1)       // molasses brown
     static let ink = NSColor(srgbRed: 0.141, green: 0.102, blue: 0.071, alpha: 1)         // text on amber
     static let text = NSColor(srgbRed: 0.965, green: 0.918, blue: 0.847, alpha: 1)        // raw sugar
     static let secondary = NSColor(srgbRed: 0.753, green: 0.667, blue: 0.549, alpha: 1)
@@ -457,8 +457,8 @@ struct DexcomRegion {
     let appId: String
     let label: String
 
-    static let choices: [(name: String, label: String)] = [
-        ("ous", "Outside the US"), ("us", "United States"), ("jp", "Japan"),
+    static let choices: [(name: String, label: String, short: String)] = [
+        ("ous", "Outside the US", "Outside US"), ("us", "United States", "US"), ("jp", "Japan", "Japan"),
     ]
 
     // The application IDs are Dexcom's public Share app identifiers (the same ones
@@ -600,14 +600,15 @@ final class LoginViewController: NSViewController {
 
     private let initialUsername: String
     private let initialRegion: String
-    private let userField = NSTextField()
-    private let passField = NSSecureTextField()
-    private let regionPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let userTile = FieldTile(placeholder: "Username, email or phone")
+    private let passTile = FieldTile(placeholder: "Password", secure: true)
+    private let regionSwitch = ThemedSwitch(labels: DexcomRegion.choices.map { $0.short })
     private let errorLabel = NSTextField(wrappingLabelWithString: "")
     private let spinner = NSProgressIndicator()
-    private let signInButton = NSButton(title: "Sign In", target: nil, action: nil)
-    private let quitButton = NSButton(title: "Quit Sugarcane", target: nil, action: nil)
+    private let signInButton = ThemedButton("Sign In", style: .filled)
+    private let rootStack = NSStackView()
     private let contentWidth: CGFloat = 280
+    private var busy = false
 
     init(username: String, region: String) {
         initialUsername = username
@@ -618,81 +619,64 @@ final class LoginViewController: NSViewController {
     required init?(coder: NSCoder) { fatalError("not used") }
 
     override func loadView() {
-        let title = NSTextField(labelWithString: "Sign in to Dexcom")
-        title.font = .systemFont(ofSize: 17, weight: .semibold)
-
+        let title = NSTextField(labelWithString: "Sign in")
+        title.font = .systemFont(ofSize: 26, weight: .bold)
+        title.textColor = Theme.text
         let subtitle = wrapping("Use the same account as your Dexcom app.", size: 12)
 
-        userField.placeholderString = "Username, email or phone"
-        userField.stringValue = initialUsername
-        passField.placeholderString = "Password"
-        for field in [userField, passField] as [NSTextField] {
-            field.font = .systemFont(ofSize: 13)
-            field.controlSize = .large
+        userTile.field.stringValue = initialUsername
+        for tile in [userTile, passTile] {   // Return in either box signs in
+            tile.field.target = self
+            tile.field.action = #selector(signIn)
         }
-        passField.target = self
-        passField.action = #selector(signIn)   // Return in the password field signs in
 
-        let regionLabel = NSTextField(labelWithString: "Region")
-        regionLabel.font = .systemFont(ofSize: 12)
-        regionLabel.textColor = .secondaryLabelColor
-        regionPopup.addItems(withTitles: DexcomRegion.choices.map { $0.label })
-        if let idx = DexcomRegion.choices.firstIndex(where: { $0.name == initialRegion }) {
-            regionPopup.selectItem(at: idx)
-        }
-        let regionRow = NSStackView(views: [regionLabel, regionPopup])
-        regionRow.orientation = .horizontal
-        regionRow.spacing = 8
+        let regionLabel = NSTextField(labelWithString: "REGION")
+        regionLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        regionLabel.textColor = Theme.secondary
+        regionSwitch.selected = DexcomRegion.choices.firstIndex { $0.name == initialRegion } ?? 0
+        let regionRow = row([regionLabel, spacer(), regionSwitch])
 
-        errorLabel.textColor = .systemRed
+        errorLabel.textColor = Theme.low
         errorLabel.font = .systemFont(ofSize: 12)
         errorLabel.preferredMaxLayoutWidth = contentWidth
         errorLabel.isHidden = true
 
-        let hint = wrapping("Dexcom Share must be on in the Dexcom app, with at least one follower. "
+        let hint = wrapping("Share must be on in the Dexcom app, with at least one follower. "
                             + "Your password stays in this Mac's Keychain.", size: 11)
 
         spinner.style = .spinning
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
-        signInButton.bezelStyle = .rounded
-        signInButton.keyEquivalent = "\r"
-        signInButton.target = self
-        signInButton.action = #selector(signIn)
-        quitButton.isBordered = false
-        quitButton.font = .systemFont(ofSize: 12)
-        quitButton.contentTintColor = .secondaryLabelColor
-        quitButton.target = self
-        quitButton.action = #selector(quit)
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
-        let buttons = NSStackView(views: [quitButton, spacer, spinner, signInButton])
-        buttons.orientation = .horizontal
-        buttons.spacing = 8
+        signInButton.onClick = { [weak self] in self?.signIn() }
+        let quitButton = ThemedButton("Quit Sugarcane", style: .plain)
+        quitButton.onClick = { [weak self] in self?.onQuit?() }
+        let divider = Hairline()
+        let buttons = row([quitButton, spacer(), spinner, signInButton])
 
-        let stack = NSStackView(views: [title, subtitle, userField, passField, regionRow,
-                                        errorLabel, hint, buttons])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 8
-        stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 14, right: 16)
-        stack.setCustomSpacing(2, after: title)
-        stack.setCustomSpacing(12, after: subtitle)
-        stack.setCustomSpacing(10, after: regionRow)
-        stack.setCustomSpacing(14, after: hint)
-        for v in [subtitle, userField, passField, errorLabel, hint, buttons] as [NSView] {
-            v.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
+        let views: [NSView] = [title, subtitle, userTile, passTile, regionRow, errorLabel, hint, divider, buttons]
+        rootStack.orientation = .vertical
+        rootStack.alignment = .leading
+        rootStack.spacing = 8
+        rootStack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 12, right: 16)
+        for v in views {
+            rootStack.addArrangedSubview(v)
+            if v !== title { v.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true }
         }
-        stack.translatesAutoresizingMaskIntoConstraints = false
+        rootStack.setCustomSpacing(2, after: title)
+        rootStack.setCustomSpacing(14, after: subtitle)
+        rootStack.setCustomSpacing(12, after: passTile)
+        rootStack.setCustomSpacing(12, after: regionRow)
+        rootStack.setCustomSpacing(12, after: hint)
+        rootStack.translatesAutoresizingMaskIntoConstraints = false
 
         let container = PanelView()
         container.appearance = Theme.dark
-        container.addSubview(stack)
+        container.addSubview(rootStack)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: container.topAnchor),
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            rootStack.topAnchor.constraint(equalTo: container.topAnchor),
+            rootStack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            rootStack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            rootStack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
         view = container
         updateSize()
@@ -701,14 +685,27 @@ final class LoginViewController: NSViewController {
     private func wrapping(_ text: String, size: CGFloat) -> NSTextField {
         let label = NSTextField(wrappingLabelWithString: text)
         label.font = .systemFont(ofSize: size)
-        label.textColor = .secondaryLabelColor
+        label.textColor = Theme.secondary
         label.preferredMaxLayoutWidth = contentWidth
         return label
     }
 
+    private func row(_ views: [NSView]) -> NSStackView {
+        let stack = NSStackView(views: views)
+        stack.orientation = .horizontal
+        stack.spacing = 8
+        return stack
+    }
+
+    private func spacer() -> NSView {
+        let v = NSView()
+        v.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
+        return v
+    }
+
     private func updateSize() {
         view.layoutSubtreeIfNeeded()
-        preferredContentSize = view.fittingSize   // the panel resizes to fit
+        preferredContentSize = rootStack.fittingSize   // the panel resizes to fit
     }
 
     func setError(_ text: String?) {
@@ -723,24 +720,23 @@ final class LoginViewController: NSViewController {
     }
 
     func focus() {
-        view.window?.makeFirstResponder(userField.stringValue.isEmpty ? userField : passField)
+        let tile = userTile.field.stringValue.isEmpty ? userTile : passTile
+        view.window?.makeFirstResponder(tile.field)
     }
 
     private func setBusy(_ busy: Bool) {
-        for control in [userField, passField, regionPopup, signInButton] as [NSControl] {
-            control.isEnabled = !busy
-        }
+        self.busy = busy
+        userTile.field.isEnabled = !busy
+        passTile.field.isEnabled = !busy
+        signInButton.isEnabled = !busy
         if busy { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
     }
 
-    @objc private func quit() {
-        onQuit?()
-    }
-
     @objc private func signIn() {
-        let user = userField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let pass = passField.stringValue
-        let regionName = DexcomRegion.choices[max(0, regionPopup.indexOfSelectedItem)].name
+        guard !busy else { return }
+        let user = userTile.field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pass = passTile.field.stringValue
+        let regionName = DexcomRegion.choices[regionSwitch.selected].name
         guard !user.isEmpty, !pass.isEmpty else {
             setError("Enter your Dexcom username and password.")
             return
@@ -752,13 +748,13 @@ final class LoginViewController: NSViewController {
             do {
                 try await client.login()   // only keep credentials Dexcom accepted
                 self.setBusy(false)
-                self.passField.stringValue = ""
+                self.passTile.field.stringValue = ""
                 self.onSuccess?(user, pass, regionName, client)
             } catch let e as DexcomError where e.isAuthFailure {
                 self.setBusy(false)
                 self.setError("Dexcom didn't accept that username or password. "
                               + "Check them, and that the region matches your account.")
-                self.view.window?.makeFirstResponder(self.passField)
+                self.view.window?.makeFirstResponder(self.passTile.field)
             } catch {
                 self.setBusy(false)
                 self.setError("Couldn't reach Dexcom: \(error.localizedDescription)")
@@ -920,16 +916,24 @@ final class ThemedSwitch: NSView {
     }
 }
 
-/// A button in the panel's style: an outlined pill with text, or a round one with a single glyph.
+/// A button in the panel's style.
 final class ThemedButton: NSView {
+    enum Style {
+        case outline   // amber outline and text
+        case filled    // solid amber: the main action
+        case plain     // quiet text only
+        case round     // a small circle with one glyph
+    }
+
     var onClick: (() -> Void)?
+    var isEnabled = true { didSet { needsDisplay = true } }
     private let title: String
-    private let round: Bool
+    private let style: Style
     private var pressed = false { didSet { needsDisplay = true } }
 
-    init(_ title: String, round: Bool = false) {
+    init(_ title: String, style: Style = .outline) {
         self.title = title
-        self.round = round
+        self.style = style
         super.init(frame: .zero)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
@@ -939,43 +943,123 @@ final class ThemedButton: NSView {
     required init?(coder: NSCoder) { fatalError("not used") }
 
     private var text: NSAttributedString {
-        NSAttributedString(string: title, attributes: [
-            .font: NSFont.systemFont(ofSize: round ? 15 : 12, weight: .semibold),
-            .foregroundColor: round ? Theme.text : Theme.accent])
+        let color: NSColor
+        switch style {
+        case .outline: color = Theme.accent
+        case .filled: color = Theme.ink
+        case .plain: color = Theme.secondary
+        case .round: color = Theme.text
+        }
+        return NSAttributedString(string: title, attributes: [
+            .font: NSFont.systemFont(ofSize: style == .round ? 15 : 12, weight: style == .plain ? .regular : .semibold),
+            .foregroundColor: color])
     }
 
     override var intrinsicContentSize: NSSize {
-        round ? NSSize(width: 24, height: 24) : NSSize(width: ceil(text.size().width) + 24, height: 24)
+        switch style {
+        case .round: return NSSize(width: 24, height: 24)
+        case .plain: return NSSize(width: ceil(text.size().width) + 4, height: 24)
+        default: return NSSize(width: ceil(text.size().width) + 28, height: 26)
+        }
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 12, yRadius: 12)
-        if pressed {
-            Theme.accent.withAlphaComponent(0.3).setFill()
+        let radius = bounds.height / 2
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: radius, yRadius: radius)
+        switch style {
+        case .filled:
+            Theme.accent.withAlphaComponent(pressed ? 0.7 : 1).setFill()
             path.fill()
-        } else if round {
-            Theme.tile.setFill()
-            path.fill()
-        }
-        if !round {
+        case .outline:
+            if pressed {
+                Theme.accent.withAlphaComponent(0.3).setFill()
+                path.fill()
+            }
             path.lineWidth = 1
             Theme.accent.setStroke()
             path.stroke()
+        case .round:
+            (pressed ? Theme.accent.withAlphaComponent(0.3) : Theme.tile).setFill()
+            path.fill()
+        case .plain:
+            break
         }
         let s = text
         s.draw(at: NSPoint(x: (bounds.width - s.size().width) / 2, y: (bounds.height - s.size().height) / 2))
+        alphaValue = isEnabled ? 1 : 0.45
     }
 
-    override func mouseDown(with event: NSEvent) { pressed = true }
+    override func mouseDown(with event: NSEvent) {
+        if isEnabled { pressed = true }
+    }
 
     override func mouseUp(with event: NSEvent) {
+        guard pressed else { return }
         pressed = false
         if bounds.contains(convert(event.locationInWindow, from: nil)) { onClick?() }
     }
 
     override func accessibilityPerformPress() -> Bool {
+        guard isEnabled else { return false }
         onClick?()
         return true
+    }
+}
+
+/// A text box in the panel's style: a tile that gets an amber outline while you type in it.
+final class FieldTile: NSView, NSTextFieldDelegate {
+    let field: NSTextField
+    private var focused = false { didSet { needsDisplay = true } }
+
+    init(placeholder: String, secure: Bool = false) {
+        field = secure ? NSSecureTextField() : NSTextField()
+        super.init(frame: .zero)
+        field.font = .systemFont(ofSize: 13)
+        field.textColor = Theme.text
+        field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
+            .font: NSFont.systemFont(ofSize: 13), .foregroundColor: Theme.secondary.withAlphaComponent(0.75)])
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.usesSingleLineMode = true
+        field.cell?.isScrollable = true
+        field.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(field)
+        NSLayoutConstraint.activate([
+            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            field.centerYAnchor.constraint(equalTo: centerYAnchor),
+            heightAnchor.constraint(equalToConstant: 34),
+        ])
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(focusChanged),
+                           name: NSWindow.didUpdateNotification, object: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    /// The field is being edited when the window's field editor belongs to it.
+    @objc private func focusChanged() {
+        let editing = field.currentEditor() != nil
+        if editing != focused { focused = editing }
+        if editing, let editor = field.currentEditor() as? NSTextView {
+            editor.insertionPointColor = Theme.accent
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        Theme.tile.setFill()
+        path.fill()
+        if focused {
+            path.lineWidth = 1
+            Theme.accent.setStroke()
+            path.stroke()
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(field)
     }
 }
 
@@ -1013,10 +1097,10 @@ final class ThresholdField: NSView {
         field.setAccessibilityLabel(title)
         field.widthAnchor.constraint(equalToConstant: 58).isActive = true
 
-        let minus = ThemedButton("−", round: true)
+        let minus = ThemedButton("−", style: .round)
         minus.setAccessibilityLabel("Lower \(title)")
         minus.onClick = { [weak self] in self?.nudge(-1) }
-        let plus = ThemedButton("+", round: true)
+        let plus = ThemedButton("+", style: .round)
         plus.setAccessibilityLabel("Raise \(title)")
         plus.onClick = { [weak self] in self?.nudge(1) }
         let spacer = NSView()
