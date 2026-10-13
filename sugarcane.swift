@@ -132,25 +132,26 @@ func directionFromDelta(_ deltaPer5Min: Double) -> String {
     return "DoubleDown"
 }
 
-// MARK: - Theme (the panel's molasses look; the menu bar keeps the system colors)
+// MARK: - Theme (the panel's dark, cane-green look; the menu bar keeps the system colors)
 
 enum Theme {
-    static let panel = NSColor(srgbRed: 0.141, green: 0.102, blue: 0.071, alpha: 1)       // molasses brown
-    static let ink = NSColor(srgbRed: 0.141, green: 0.102, blue: 0.071, alpha: 1)         // text on amber
+    static let panel = NSColor(srgbRed: 0.071, green: 0.063, blue: 0.055, alpha: 1)       // near-black, slightly warm
+    static let ink = NSColor(srgbRed: 0.071, green: 0.063, blue: 0.055, alpha: 1)         // text on green
     static let text = NSColor(srgbRed: 0.965, green: 0.918, blue: 0.847, alpha: 1)        // raw sugar
     static let secondary = NSColor(srgbRed: 0.753, green: 0.667, blue: 0.549, alpha: 1)
-    static let accent = NSColor(srgbRed: 0.941, green: 0.706, blue: 0.271, alpha: 1)      // amber syrup; also "high"
     static let inRange = NSColor(srgbRed: 0.651, green: 0.812, blue: 0.353, alpha: 1)     // cane green
+    static let accent = inRange                                                           // switches, buttons, the graph line
+    static let high = NSColor(srgbRed: 0.941, green: 0.706, blue: 0.271, alpha: 1)        // amber: high readings, warnings
     static let low = NSColor(srgbRed: 1.0, green: 0.541, blue: 0.451, alpha: 1)
     static let tile = NSColor(srgbRed: 1.0, green: 0.863, blue: 0.627, alpha: 0.10)
     static let dark = NSAppearance(named: .darkAqua)
 
     static func color(_ v: Double, _ cfg: Config) -> NSColor {
-        v < cfg.low ? low : v > cfg.high ? accent : inRange
+        v < cfg.low ? low : v > cfg.high ? high : inRange
     }
 }
 
-/// Root view of both panels: paints the whole popover, its arrow included, in the theme's brown.
+/// Root view of both panels: paints the whole popover, its arrow included, in the theme's background.
 final class PanelView: NSView {
     private weak var backdrop: NSView?
 
@@ -358,7 +359,7 @@ final class GraphView: NSView {
             return
         }
 
-        // Amber line with the area under it filled, like poured syrup
+        // Green line with the area under it filled
         let line = NSBezierPath()
         for (i, p) in points.enumerated() {
             let pt = NSPoint(x: x(p.date), y: y(p.value))
@@ -860,7 +861,7 @@ final class StatTile: NSView {
     }
 }
 
-/// A row of choices in the panel's style; the chosen one is filled with amber.
+/// A row of choices in the panel's style; the chosen one is filled with green.
 final class ThemedSwitch: NSView {
     var onChange: ((Int) -> Void)?
     var selected = 0 { didSet { needsDisplay = true } }
@@ -919,8 +920,8 @@ final class ThemedSwitch: NSView {
 /// A button in the panel's style.
 final class ThemedButton: NSView {
     enum Style {
-        case outline   // amber outline and text
-        case filled    // solid amber: the main action
+        case outline   // green outline and text
+        case filled    // solid green: the main action
         case plain     // quiet text only
         case round     // a small circle with one glyph
     }
@@ -1006,7 +1007,7 @@ final class ThemedButton: NSView {
     }
 }
 
-/// A text box in the panel's style: a tile that gets an amber outline while you type in it.
+/// A text box in the panel's style: a tile that gets a green outline while you type in it.
 final class FieldTile: NSView, NSTextFieldDelegate {
     let field: NSTextField
     private var focused = false { didSet { needsDisplay = true } }
@@ -1200,7 +1201,7 @@ final class DashboardViewController: NSViewController {
     private let accountLabel = NSTextField(labelWithString: "")
 
     override func loadView() {
-        for (label, color) in [(warningLabel, Theme.accent), (messageLabel, Theme.accent),
+        for (label, color) in [(warningLabel, Theme.high), (messageLabel, Theme.high),
                                (hintLabel, Theme.secondary), (placeholderLabel, Theme.text),
                                (settingsError, Theme.low)] {
             label.font = .systemFont(ofSize: label === placeholderLabel ? 13 : 11)
@@ -1252,7 +1253,7 @@ final class DashboardViewController: NSViewController {
     }
 
     /// The settings page, built from the same pieces as the main page: a big title,
-    /// small captions, amber switches and tiles.
+    /// small captions, green switches and tiles.
     private func buildSettings() {
         let title = NSTextField(labelWithString: "Settings")
         title.font = .systemFont(ofSize: 26, weight: .bold)
@@ -1422,7 +1423,7 @@ final class DashboardViewController: NSViewController {
 
             averageTile.set([(m.average, Theme.text)])
             inRangeTile.set([(m.inRange, Theme.inRange)])
-            outsideTile.set([(m.lowShare, Theme.low), (" · ", Theme.secondary), (m.highShare, Theme.accent)])
+            outsideTile.set([(m.lowShare, Theme.low), (" · ", Theme.secondary), (m.highShare, Theme.high)])
         }
         resize()
     }
@@ -1861,7 +1862,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 "Signal loss. Last reading \(fmtBG(bg, units)) \(units), \(minutes) minutes ago")
             model.valueColor = Theme.secondary
             model.state = "Signal loss"
-            model.stateColor = Theme.accent
+            model.stateColor = Theme.high
             model.subtitle = "No new reading since \(fmtClock(latest.date))  ·  \(fmtAge(age))"
             model.hint = "Keep your phone near you with the Dexcom app open. "
                 + "Missed readings fill in when the signal returns."

@@ -17,7 +17,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-1.3.1}"
+VERSION="${VERSION:-1.3.2}"
 BUNDLE_ID="${BUNDLE_ID:-io.github.yuvalezrati.sugarcane}"
 MIN_MACOS="12.0"
 DEVELOPER_ID="${DEVELOPER_ID:-}"
@@ -43,15 +43,15 @@ for arch in arm64 x86_64; do
 done
 lipo -create "$BUILD/Sugarcane-arm64" "$BUILD/Sugarcane-x86_64" -output "$APP/Contents/MacOS/Sugarcane"
 
-# 2. App icon: a green cane stalk with an amber leaf on a molasses-brown tile
+# 2. App icon: a green cane stalk with an amber leaf on a near-black tile
 echo "Making the icon…"
 cat > "$BUILD/icon.swift" <<'EOF'
 import AppKit
 let side: CGFloat = 1024
 let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
     let tile = NSBezierPath(roundedRect: rect.insetBy(dx: 100, dy: 100), xRadius: 185, yRadius: 185)
-    NSGradient(starting: NSColor(srgbRed: 0.22, green: 0.16, blue: 0.11, alpha: 1),
-               ending: NSColor(srgbRed: 0.10, green: 0.07, blue: 0.05, alpha: 1))!.draw(in: tile, angle: -90)
+    NSGradient(starting: NSColor(srgbRed: 0.13, green: 0.12, blue: 0.11, alpha: 1),
+               ending: NSColor(srgbRed: 0.05, green: 0.045, blue: 0.04, alpha: 1))!.draw(in: tile, angle: -90)
     // A leaning cane stalk in four jointed sections, with one leaf
     let transform = NSAffineTransform()
     transform.translateX(by: 512, yBy: 512)
