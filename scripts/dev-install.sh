@@ -15,11 +15,10 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG="$HOME/Library/Logs/Sugarcane.log"
 DOMAIN="gui/$(id -u)"
 
-# The app was called Subar, and GlucoseBar before that. Remove those developer installs
-# so only one runs.
+# The app was first called GlucoseBar. Remove that developer install so only one runs.
 remove_legacy() {
   local name label
-  for name in Subar GlucoseBar; do
+  for name in GlucoseBar; do
     label="local.$(echo "$name" | tr '[:upper:]' '[:lower:]')"
     if launchctl print "$DOMAIN/$label" >/dev/null 2>&1 || [[ -e "$HOME/Library/LaunchAgents/$label.plist" ]]; then
       launchctl bootout "$DOMAIN/$label" 2>/dev/null || true

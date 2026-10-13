@@ -56,16 +56,15 @@ struct Config: Codable, Equatable {
 let CONFIG_DIR = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent("Library/Application Support/Sugarcane", isDirectory: true)
 let CONFIG_URL = CONFIG_DIR.appendingPathComponent("config.json")
-// The app was called Subar, and GlucoseBar before that. Settings saved under an old
-// name are copied over on first launch.
-let LEGACY_CONFIG_URLS = ["Subar", "GlucoseBar"].map {
+// Settings saved under the app's first name (GlucoseBar) are copied over on first launch.
+let LEGACY_CONFIG_URLS = ["GlucoseBar"].map {
     FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/\($0)/config.json")
 }
 
 let GRAPH_HOUR_CHOICES = [1, 3, 6]
 let MENU_BAR_STYLES: [(name: String, label: String)] = [
-    ("number", "Number"), ("dotNumber", "Dot and number"), ("dot", "Dot only"),
+    ("number", "Number"), ("dotNumber", "Dot + number"), ("dot", "Dot"),
 ]
 
 // MARK: - Fetch timing and signal loss
@@ -136,13 +135,14 @@ func directionFromDelta(_ deltaPer5Min: Double) -> String {
 // MARK: - Theme (the panel's molasses look; the menu bar keeps the system colors)
 
 enum Theme {
-    static let panel = NSColor(srgbRed: 0.141, green: 0.102, blue: 0.071, alpha: 1)       // molasses brown
+    static let panel = NSColor(srgbRed: 0.224, green: 0.165, blue: 0.114, alpha: 1)       // molasses brown
+    static let ink = NSColor(srgbRed: 0.141, green: 0.102, blue: 0.071, alpha: 1)         // text on amber
     static let text = NSColor(srgbRed: 0.965, green: 0.918, blue: 0.847, alpha: 1)        // raw sugar
     static let secondary = NSColor(srgbRed: 0.753, green: 0.667, blue: 0.549, alpha: 1)
     static let accent = NSColor(srgbRed: 0.941, green: 0.706, blue: 0.271, alpha: 1)      // amber syrup; also "high"
     static let inRange = NSColor(srgbRed: 0.651, green: 0.812, blue: 0.353, alpha: 1)     // cane green
     static let low = NSColor(srgbRed: 1.0, green: 0.541, blue: 0.451, alpha: 1)
-    static let tile = NSColor(srgbRed: 1.0, green: 0.863, blue: 0.627, alpha: 0.08)
+    static let tile = NSColor(srgbRed: 1.0, green: 0.863, blue: 0.627, alpha: 0.10)
     static let dark = NSAppearance(named: .darkAqua)
 
     static func color(_ v: Double, _ cfg: Config) -> NSColor {
@@ -403,7 +403,7 @@ final class GraphView: NSView {
 
 enum Keychain {
     static let service = "Sugarcane.Dexcom"
-    static let legacyServices = ["Subar.Dexcom", "GlucoseBar.Dexcom"]   // before the renames
+    static let legacyServices = ["GlucoseBar.Dexcom"]   // the app's first name
 
     private static func query(_ account: String, service: String = Keychain.service) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
@@ -864,32 +864,181 @@ final class StatTile: NSView {
     }
 }
 
-/// A threshold on the settings page: shown in the chosen units, kept in mg/dL.
-final class ThresholdField: NSStackView {
+/// A row of choices in the panel's style; the chosen one is filled with amber.
+final class ThemedSwitch: NSView {
+    var onChange: ((Int) -> Void)?
+    var selected = 0 { didSet { needsDisplay = true } }
+    private let labels: [String]
+    private let widths: [CGFloat]
+
+    init(labels: [String]) {
+        self.labels = labels
+        let bold = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        widths = labels.map { ceil(($0 as NSString).size(withAttributes: [.font: bold]).width) + 22 }
+        super.init(frame: .zero)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.radioGroup)
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override var isFlipped: Bool { true }
+    override var intrinsicContentSize: NSSize { NSSize(width: widths.reduce(4, +), height: 26) }
+    override func accessibilityValue() -> Any? { labels[selected] }
+
+    override func draw(_ dirtyRect: NSRect) {
+        Theme.tile.setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 7, yRadius: 7).fill()
+        var x: CGFloat = 2
+        for (i, label) in labels.enumerated() {
+            let cell = NSRect(x: x, y: 2, width: widths[i], height: bounds.height - 4)
+            let on = i == selected
+            if on {
+                Theme.accent.setFill()
+                NSBezierPath(roundedRect: cell, xRadius: 5, yRadius: 5).fill()
+            }
+            let text = NSAttributedString(string: label, attributes: [
+                .font: NSFont.systemFont(ofSize: 12, weight: on ? .semibold : .regular),
+                .foregroundColor: on ? Theme.ink : Theme.secondary])
+            text.draw(at: NSPoint(x: cell.midX - text.size().width / 2, y: cell.midY - text.size().height / 2))
+            x += widths[i]
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        var x = convert(event.locationInWindow, from: nil).x - 2
+        for i in labels.indices {
+            if x < widths[i] || i == labels.count - 1 {
+                if i != selected {
+                    selected = i
+                    onChange?(i)
+                }
+                return
+            }
+            x -= widths[i]
+        }
+    }
+}
+
+/// A button in the panel's style: an outlined pill with text, or a round one with a single glyph.
+final class ThemedButton: NSView {
+    var onClick: (() -> Void)?
+    private let title: String
+    private let round: Bool
+    private var pressed = false { didSet { needsDisplay = true } }
+
+    init(_ title: String, round: Bool = false) {
+        self.title = title
+        self.round = round
+        super.init(frame: .zero)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(title)
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    private var text: NSAttributedString {
+        NSAttributedString(string: title, attributes: [
+            .font: NSFont.systemFont(ofSize: round ? 15 : 12, weight: .semibold),
+            .foregroundColor: round ? Theme.text : Theme.accent])
+    }
+
+    override var intrinsicContentSize: NSSize {
+        round ? NSSize(width: 24, height: 24) : NSSize(width: ceil(text.size().width) + 24, height: 24)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 12, yRadius: 12)
+        if pressed {
+            Theme.accent.withAlphaComponent(0.3).setFill()
+            path.fill()
+        } else if round {
+            Theme.tile.setFill()
+            path.fill()
+        }
+        if !round {
+            path.lineWidth = 1
+            Theme.accent.setStroke()
+            path.stroke()
+        }
+        let s = text
+        s.draw(at: NSPoint(x: (bounds.width - s.size().width) / 2, y: (bounds.height - s.size().height) / 2))
+    }
+
+    override func mouseDown(with event: NSEvent) { pressed = true }
+
+    override func mouseUp(with event: NSEvent) {
+        pressed = false
+        if bounds.contains(convert(event.locationInWindow, from: nil)) { onClick?() }
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        onClick?()
+        return true
+    }
+}
+
+/// The thin line above the footer and the account row.
+final class Hairline: NSView {
+    override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: 1) }
+
+    override func draw(_ dirtyRect: NSRect) {
+        Theme.accent.withAlphaComponent(0.22).setFill()
+        bounds.fill()
+    }
+}
+
+/// A threshold on the settings page, as a tile: shown in the chosen units, kept in mg/dL.
+final class ThresholdField: NSView {
     var onChange: (() -> Void)?
     private(set) var mgdl = 0.0
     private var units = "mg/dL"
     private let field = NSTextField()
-    private let stepper = NSStepper()
     private var scale: Double { units == "mmol/L" ? 18.0 : 1.0 }
+    private var step: Double { units == "mmol/L" ? 0.1 : 5 }
 
     init(title: String) {
         super.init(frame: .zero)
         let label = NSTextField(labelWithString: title)
-        label.font = .systemFont(ofSize: 12)
-        field.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        field.alignment = .right
+        label.font = .systemFont(ofSize: 11)
+        label.textColor = Theme.secondary
+        field.font = .monospacedDigitSystemFont(ofSize: 17, weight: .semibold)
+        field.textColor = Theme.text
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.focusRingType = .none
         field.target = self
         field.action = #selector(fieldChanged)
-        field.widthAnchor.constraint(equalToConstant: 46).isActive = true
         field.setAccessibilityLabel(title)
-        stepper.target = self
-        stepper.action = #selector(stepperChanged)
-        stepper.controlSize = .small
-        orientation = .horizontal
-        spacing = 5
-        [label, field, stepper].forEach(addArrangedSubview)
-        setCustomSpacing(2, after: field)
+        field.widthAnchor.constraint(equalToConstant: 58).isActive = true
+
+        let minus = ThemedButton("−", round: true)
+        minus.setAccessibilityLabel("Lower \(title)")
+        minus.onClick = { [weak self] in self?.nudge(-1) }
+        let plus = ThemedButton("+", round: true)
+        plus.setAccessibilityLabel("Raise \(title)")
+        plus.onClick = { [weak self] in self?.nudge(1) }
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
+        let row = NSStackView(views: [field, spacer, minus, plus])
+        row.orientation = .horizontal
+        row.spacing = 4
+
+        let stack = NSStackView(views: [label, row])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 2
+        stack.edgeInsets = NSEdgeInsets(top: 9, left: 10, bottom: 9, right: 8)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            row.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -18),
+        ])
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -897,29 +1046,28 @@ final class ThresholdField: NSStackView {
     func set(_ value: Double, units: String) {
         self.units = units
         mgdl = value
-        stepper.minValue = 20 / scale
-        stepper.maxValue = 400 / scale
-        stepper.increment = units == "mmol/L" ? 0.1 : 1
-        show()
+        field.stringValue = fmtBG(mgdl, units)
     }
 
-    private func show() {
+    private func commit(_ value: Double) {
+        mgdl = min(max(value, 20), 400)
         field.stringValue = fmtBG(mgdl, units)
-        stepper.doubleValue = mgdl / scale
+        onChange?()
     }
 
     @objc private func fieldChanged() {
-        if let typed = Double(field.stringValue.replacingOccurrences(of: ",", with: ".")) {
-            mgdl = min(max(typed, stepper.minValue), stepper.maxValue) * scale
-        }
-        show()
-        onChange?()
+        let typed = Double(field.stringValue.replacingOccurrences(of: ",", with: "."))
+        commit(typed.map { $0 * scale } ?? mgdl)
     }
 
-    @objc private func stepperChanged() {
-        mgdl = stepper.doubleValue * scale
-        show()
-        onChange?()
+    /// One step up or down, landing on a round number (72 goes up to 75, not 77).
+    private func nudge(_ direction: Double) {
+        commit(((mgdl / scale / step).rounded() + direction) * step * scale)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        Theme.tile.setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8).fill()
     }
 }
 
@@ -934,6 +1082,8 @@ final class DashboardViewController: NSViewController {
 
     private var model = DashboardModel()
     private let contentWidth: CGFloat = 308
+    private let rootStack = NSStackView()
+    private let mainStack = NSStackView()
     private let warningLabel = NSTextField(wrappingLabelWithString: "")
     private let placeholderLabel = NSTextField(wrappingLabelWithString: "")
     private let valueLabel = NSTextField(labelWithString: "")
@@ -942,8 +1092,7 @@ final class DashboardViewController: NSViewController {
     private let messageLabel = NSTextField(wrappingLabelWithString: "")
     private let hintLabel = NSTextField(wrappingLabelWithString: "")
     private let periodLabel = NSTextField(labelWithString: "")
-    private let periodSwitch = NSSegmentedControl(labels: GRAPH_HOUR_CHOICES.map { "\($0)h" },
-                                                  trackingMode: .selectOne, target: nil, action: nil)
+    private let periodSwitch = ThemedSwitch(labels: GRAPH_HOUR_CHOICES.map { "\($0)h" })
     private let graph = GraphView(width: 308)
     private let averageTile = StatTile(title: "Average")
     private let inRangeTile = StatTile(title: "In range")
@@ -954,23 +1103,22 @@ final class DashboardViewController: NSViewController {
     // Settings page: replaces the reading and graph while it's open.
     private var showingSettings = false
     private var shownConfig: Config?
-    private let rootStack = NSStackView()
-    private let mainStack = NSStackView()
     private let settingsStack = NSStackView()
-    private let unitsSwitch = NSSegmentedControl(labels: ["mg/dL", "mmol/L"], trackingMode: .selectOne,
-                                                 target: nil, action: nil)
-    private let stylePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let unitsSwitch = ThemedSwitch(labels: ["mg/dL", "mmol/L"])
+    private let styleSwitch = ThemedSwitch(labels: MENU_BAR_STYLES.map { $0.label })
     private let lowField = ThresholdField(title: "Low")
     private let highField = ThresholdField(title: "High")
     private let urgentLowField = ThresholdField(title: "Urgent low")
     private let urgentHighField = ThresholdField(title: "Urgent high")
     private let settingsError = NSTextField(wrappingLabelWithString: "")
-    private let openAtLoginBox = NSButton(checkboxWithTitle: "Open at Login", target: nil, action: nil)
+    private let openAtLoginSwitch = ThemedSwitch(labels: ["Off", "On"])
+    private var openAtLoginRow = NSView()
     private let accountLabel = NSTextField(labelWithString: "")
 
     override func loadView() {
         for (label, color) in [(warningLabel, Theme.accent), (messageLabel, Theme.accent),
-                               (hintLabel, Theme.secondary), (placeholderLabel, Theme.text)] {
+                               (hintLabel, Theme.secondary), (placeholderLabel, Theme.text),
+                               (settingsError, Theme.low)] {
             label.font = .systemFont(ofSize: label === placeholderLabel ? 13 : 11)
             label.textColor = color
             label.preferredMaxLayoutWidth = contentWidth
@@ -983,21 +1131,9 @@ final class DashboardViewController: NSViewController {
         nextCheckLabel.textColor = Theme.secondary
 
         let header = row([valueLabel, spacer(), pill])
-        header.alignment = .centerY
-
-        periodSwitch.controlSize = .small
-        periodSwitch.selectedSegmentBezelColor = Theme.accent
-        periodSwitch.target = self
-        periodSwitch.action = #selector(periodChanged)
+        periodSwitch.onChange = { [weak self] index in self?.onHours?(GRAPH_HOUR_CHOICES[index]) }
         let periodRow = row([periodLabel, spacer(), periodSwitch])
-
-        let tiles = NSStackView(views: [averageTile, inRangeTile, outsideTile])
-        tiles.orientation = .horizontal
-        tiles.distribution = .fillEqually
-        tiles.spacing = 8
-
-        let divider = NSBox()
-        divider.boxType = .separator
+        let tiles = grid([averageTile, inRangeTile, outsideTile])
 
         let footer = row([nextCheckLabel, spacer(),
                           iconButton("arrow.clockwise", "Refresh", #selector(refresh)),
@@ -1013,22 +1149,77 @@ final class DashboardViewController: NSViewController {
         graph.heightAnchor.constraint(equalToConstant: graph.frame.height).isActive = true
         buildSettings()
 
-        let stack = rootStack
-        fill(stack, [mainStack, settingsStack, divider, footer])
-        stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 10, right: 16)
-        stack.setCustomSpacing(6, after: divider)
-        stack.translatesAutoresizingMaskIntoConstraints = false
+        let divider = Hairline()
+        fill(rootStack, [mainStack, settingsStack, divider, footer])
+        rootStack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 10, right: 16)
+        rootStack.setCustomSpacing(6, after: divider)
+        rootStack.translatesAutoresizingMaskIntoConstraints = false
 
         let container = PanelView()
         container.appearance = Theme.dark
-        container.addSubview(stack)
+        container.addSubview(rootStack)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: container.topAnchor),
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            rootStack.topAnchor.constraint(equalTo: container.topAnchor),
+            rootStack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            rootStack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            rootStack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
         view = container
+    }
+
+    /// The settings page, built from the same pieces as the main page: a big title,
+    /// small captions, amber switches and tiles.
+    private func buildSettings() {
+        let title = NSTextField(labelWithString: "Settings")
+        title.font = .systemFont(ofSize: 26, weight: .bold)
+        title.textColor = Theme.text
+        let done = ThemedButton("Done")
+        done.onClick = { [weak self] in self?.toggleSettings() }
+        let header = row([title, spacer(), done])
+
+        for control in [unitsSwitch, styleSwitch] {
+            control.onChange = { [weak self] _ in self?.settingsChanged() }
+        }
+        for field in [lowField, highField, urgentLowField, urgentHighField] {
+            field.onChange = { [weak self] in self?.settingsChanged() }
+        }
+        settingsError.isHidden = true
+        openAtLoginSwitch.onChange = { [weak self] _ in self?.onToggleOpenAtLogin?() }
+        openAtLoginRow = row([settingLabel("Open at Login"), spacer(), openAtLoginSwitch])
+
+        accountLabel.font = .systemFont(ofSize: 11)
+        accountLabel.textColor = Theme.secondary
+        accountLabel.lineBreakMode = .byTruncatingMiddle
+        accountLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let signOut = ThemedButton("Sign Out")
+        signOut.onClick = { [weak self] in self?.onSignOut?() }
+        let accountDivider = Hairline()
+
+        let display = caption("DISPLAY")
+        let range = caption("TARGET RANGE")
+        let general = caption("GENERAL")
+        let urgentRow = grid([urgentLowField, urgentHighField])
+        fill(settingsStack, [
+            header,
+            display,
+            row([settingLabel("Units"), spacer(), unitsSwitch]),
+            row([settingLabel("Menu bar"), spacer(), styleSwitch]),
+            range,
+            grid([lowField, highField]),
+            urgentRow,
+            settingsError,
+            general,
+            openAtLoginRow,
+            accountDivider,
+            row([accountLabel, spacer(), signOut]),
+        ])
+        settingsStack.setCustomSpacing(14, after: header)
+        settingsStack.setCustomSpacing(6, after: display)
+        settingsStack.setCustomSpacing(6, after: range)
+        settingsStack.setCustomSpacing(8, after: settingsStack.arrangedSubviews[5])
+        settingsStack.setCustomSpacing(6, after: general)
+        settingsStack.setCustomSpacing(14, after: settingsStack.arrangedSubviews[3])
+        settingsStack.setCustomSpacing(14, after: urgentRow)
     }
 
     /// A vertical stack of full-width rows.
@@ -1042,70 +1233,6 @@ final class DashboardViewController: NSViewController {
         }
     }
 
-    private func buildSettings() {
-        let title = NSTextField(labelWithString: "Settings")
-        title.font = .systemFont(ofSize: 15, weight: .semibold)
-        title.textColor = Theme.text
-        let done = smallButton("Done", #selector(toggleSettings))
-        done.keyEquivalent = "\r"
-
-        unitsSwitch.target = self
-        unitsSwitch.action = #selector(settingsChanged)
-        stylePopup.addItems(withTitles: MENU_BAR_STYLES.map { $0.label })
-        stylePopup.target = self
-        stylePopup.action = #selector(settingsChanged)
-        for field in [lowField, highField, urgentLowField, urgentHighField] {
-            field.onChange = { [weak self] in self?.settingsChanged() }
-        }
-        let rangeCaption = NSTextField(labelWithString: "TARGET RANGE")
-        rangeCaption.font = .systemFont(ofSize: 11, weight: .semibold)
-        rangeCaption.textColor = Theme.secondary
-        settingsError.font = .systemFont(ofSize: 11)
-        settingsError.textColor = Theme.low
-        settingsError.preferredMaxLayoutWidth = contentWidth
-        settingsError.isHidden = true
-
-        openAtLoginBox.target = self
-        openAtLoginBox.action = #selector(toggleOpenAtLogin)
-        accountLabel.font = .systemFont(ofSize: 11)
-        accountLabel.textColor = Theme.secondary
-        accountLabel.lineBreakMode = .byTruncatingMiddle
-        accountLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let accountDivider = NSBox()
-        accountDivider.boxType = .separator
-
-        fill(settingsStack, [
-            row([title, spacer(), done]),
-            row([settingLabel("Units"), spacer(), unitsSwitch]),
-            row([settingLabel("Menu bar shows"), spacer(), stylePopup]),
-            rangeCaption,
-            row([lowField, spacer(), highField]),
-            row([urgentLowField, spacer(), urgentHighField]),
-            settingsError,
-            openAtLoginBox,
-            accountDivider,
-            row([accountLabel, spacer(), smallButton("Sign Out", #selector(signOut))]),
-        ])
-        settingsStack.setCustomSpacing(14, after: settingsStack.arrangedSubviews[0])
-        settingsStack.setCustomSpacing(14, after: settingsStack.arrangedSubviews[2])
-        settingsStack.setCustomSpacing(6, after: rangeCaption)
-    }
-
-    private func settingLabel(_ text: String) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
-        label.font = .systemFont(ofSize: 13)
-        label.textColor = Theme.text
-        return label
-    }
-
-    private func smallButton(_ title: String, _ action: Selector) -> NSButton {
-        let button = NSButton(title: title, target: self, action: action)
-        button.bezelStyle = .rounded
-        button.controlSize = .small
-        button.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        return button
-    }
-
     private func row(_ views: [NSView]) -> NSStackView {
         let stack = NSStackView(views: views)
         stack.orientation = .horizontal
@@ -1113,10 +1240,33 @@ final class DashboardViewController: NSViewController {
         return stack
     }
 
+    /// A row of equally wide tiles.
+    private func grid(_ views: [NSView]) -> NSStackView {
+        let stack = NSStackView(views: views)
+        stack.orientation = .horizontal
+        stack.distribution = .fillEqually
+        stack.spacing = 8
+        return stack
+    }
+
     private func spacer() -> NSView {
         let v = NSView()
         v.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
         return v
+    }
+
+    private func caption(_ text: String) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.font = .systemFont(ofSize: 11, weight: .semibold)
+        label.textColor = Theme.secondary
+        return label
+    }
+
+    private func settingLabel(_ text: String) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.font = .systemFont(ofSize: 13)
+        label.textColor = Theme.text
+        return label
     }
 
     private func iconButton(_ symbol: String, _ label: String, _ action: Selector) -> NSButton {
@@ -1150,16 +1300,16 @@ final class DashboardViewController: NSViewController {
         settingsStack.isHidden = !showingSettings
         if m.config != shownConfig {   // not on every refresh, so typing isn't interrupted
             shownConfig = m.config
-            unitsSwitch.selectedSegment = m.config.units == "mmol/L" ? 1 : 0
-            stylePopup.selectItem(at: MENU_BAR_STYLES.firstIndex { $0.name == m.config.menuBarStyle } ?? 0)
+            unitsSwitch.selected = m.config.units == "mmol/L" ? 1 : 0
+            styleSwitch.selected = MENU_BAR_STYLES.firstIndex { $0.name == m.config.menuBarStyle } ?? 0
             lowField.set(m.config.low, units: m.config.units)
             highField.set(m.config.high, units: m.config.units)
             urgentLowField.set(m.config.urgentLow, units: m.config.units)
             urgentHighField.set(m.config.urgentHigh, units: m.config.units)
             settingsError.isHidden = true
         }
-        openAtLoginBox.isHidden = m.openAtLogin == nil
-        openAtLoginBox.state = m.openAtLogin == true ? .on : .off
+        openAtLoginRow.isHidden = m.openAtLogin == nil
+        openAtLoginSwitch.selected = m.openAtLogin == true ? 1 : 0
         accountLabel.stringValue = m.account
 
         if let value = m.value {
@@ -1177,7 +1327,7 @@ final class DashboardViewController: NSViewController {
             subtitleLabel.stringValue = m.subtitle
 
             periodLabel.stringValue = m.hours == 1 ? "LAST HOUR" : "LAST \(m.hours) HOURS"
-            periodSwitch.selectedSegment = GRAPH_HOUR_CHOICES.firstIndex(of: m.hours) ?? 1
+            periodSwitch.selected = GRAPH_HOUR_CHOICES.firstIndex(of: m.hours) ?? 1
             graph.now = m.now
             graph.hours = m.hours
             graph.low = m.low
@@ -1199,14 +1349,8 @@ final class DashboardViewController: NSViewController {
         preferredContentSize = rootStack.fittingSize
     }
 
-    @objc private func periodChanged() {
-        onHours?(GRAPH_HOUR_CHOICES[max(0, periodSwitch.selectedSegment)])
-    }
-
     @objc private func refresh() { onRefresh?() }
     @objc private func quit() { onQuit?() }
-    @objc private func signOut() { onSignOut?() }
-    @objc private func toggleOpenAtLogin() { onToggleOpenAtLogin?() }
 
     /// The reading comes back each time the panel opens.
     func showMain() { showingSettings = false }
@@ -1222,10 +1366,10 @@ final class DashboardViewController: NSViewController {
     }
 
     /// Any control on the settings page changed: check the values and save them.
-    @objc private func settingsChanged() {
+    private func settingsChanged() {
         var cfg = model.config
-        cfg.units = unitsSwitch.selectedSegment == 1 ? "mmol/L" : "mg/dL"
-        cfg.menuBarStyle = MENU_BAR_STYLES[max(0, stylePopup.indexOfSelectedItem)].name
+        cfg.units = unitsSwitch.selected == 1 ? "mmol/L" : "mg/dL"
+        cfg.menuBarStyle = MENU_BAR_STYLES[styleSwitch.selected].name
         cfg.low = lowField.mgdl
         cfg.high = highField.mgdl
         cfg.urgentLow = urgentLowField.mgdl

@@ -44,7 +44,7 @@ When a reading is late, Sugarcane shows **Signal loss** with the last value and 
 
 Click the settings button at the bottom of the panel to choose mg/dL or mmol/L, what the menu bar shows, your target range and the urgent thresholds. Changes apply straight away.
 
-<p align="center"><img src="docs/settings.png" width="640" alt="The settings page: units, menu bar style, target range, urgent thresholds, Open at Login and Sign Out"></p>
+<p align="center"><img src="docs/settings.png" width="640" alt="The settings page: units, menu bar style, target range and urgent thresholds as tiles, Open at Login and Sign Out"></p>
 
 ## Privacy
 

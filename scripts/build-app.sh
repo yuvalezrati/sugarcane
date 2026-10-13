@@ -17,7 +17,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-1.2.0}"
+VERSION="${VERSION:-1.3.0}"
 BUNDLE_ID="${BUNDLE_ID:-io.github.yuvalezrati.sugarcane}"
 MIN_MACOS="12.0"
 DEVELOPER_ID="${DEVELOPER_ID:-}"
@@ -131,9 +131,6 @@ ditto "$APP" "$PKGROOT/Applications/Sugarcane.app"
 cat > "$SCRIPTS/preinstall" <<'EOF'
 #!/bin/bash
 pkill -x Sugarcane 2>/dev/null || true
-# The app was called Subar before: remove that copy so only one opens at login
-pkill -x Subar 2>/dev/null || true
-rm -rf /Applications/Subar.app
 exit 0
 EOF
 # Open Sugarcane for the person who ran the installer, so the sign-in panel appears right away

@@ -15,7 +15,7 @@ You need the Xcode Command Line Tools to build: `xcode-select --install`.
 Push a version tag and GitHub Actions builds and publishes it:
 
 ```bash
-git tag v1.3.0 && git push origin v1.3.0
+git tag v1.4.0 && git push origin v1.4.0
 ```
 
 ## Signing with an Apple Developer ID
