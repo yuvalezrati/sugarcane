@@ -1,4 +1,4 @@
-# Pushing a version tag (for example v1.1.0) builds Subar and publishes a GitHub Release
+# Pushing a version tag (for example v1.1.0) builds Sugarcane and publishes a GitHub Release
 # with the .pkg installer and the .zip.
 name: Release
 
@@ -23,8 +23,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="${GITHUB_REF_NAME#v}"
-          # A copy without the version in its name, so scripts/get-subar.sh can always fetch the latest
-          cp "dist/Subar-$version.zip" dist/Subar.zip
+          # A copy without the version in its name, so scripts/get-sugarcane.sh can always fetch the latest
+          cp "dist/Sugarcane-$version.zip" dist/Sugarcane.zip
           gh release create "$GITHUB_REF_NAME" \
-            "dist/Subar-$version.pkg" "dist/Subar-$version.zip" dist/Subar.zip \
-            --title "Subar $version" --generate-notes
+            "dist/Sugarcane-$version.pkg" "dist/Sugarcane-$version.zip" dist/Sugarcane.zip \
+            --title "Sugarcane $version" --generate-notes

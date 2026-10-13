@@ -1,9 +1,9 @@
 #!/bin/bash
-# Builds the downloadable Subar release into ./dist:
+# Builds the downloadable Sugarcane release into ./dist:
 #
-#   dist/Subar-<version>.pkg   double-click installer: installs Subar into Applications and opens it
-#   dist/Subar-<version>.zip   the plain app, for people who prefer to drag it into Applications
-#   dist/Subar.app             the app itself
+#   dist/Sugarcane-<version>.pkg   double-click installer: installs Sugarcane into Applications and opens it
+#   dist/Sugarcane-<version>.zip   the plain app, for people who prefer to drag it into Applications
+#   dist/Sugarcane.app             the app itself
 #
 # Usage:
 #   ./scripts/build-app.sh                                  unsigned build (fine for friends; see README)
@@ -12,13 +12,13 @@
 # Optional, with an Apple Developer account, so people get no security warning:
 #   DEVELOPER_ID="Developer ID Application: Your Name (TEAMID)" \
 #   INSTALLER_ID="Developer ID Installer: Your Name (TEAMID)" \
-#   NOTARY_PROFILE="subar-notary" ./scripts/build-app.sh
-#   (create the profile once with: xcrun notarytool store-credentials subar-notary)
+#   NOTARY_PROFILE="sugarcane-notary" ./scripts/build-app.sh
+#   (create the profile once with: xcrun notarytool store-credentials sugarcane-notary)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-1.0.0}"
-BUNDLE_ID="${BUNDLE_ID:-io.github.yuvalezrati.subar}"
+VERSION="${VERSION:-1.2.0}"
+BUNDLE_ID="${BUNDLE_ID:-io.github.yuvalezrati.sugarcane}"
 MIN_MACOS="12.0"
 DEVELOPER_ID="${DEVELOPER_ID:-}"
 INSTALLER_ID="${INSTALLER_ID:-}"
@@ -26,7 +26,7 @@ NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 
 DIST="dist"
 BUILD="build"
-APP="$DIST/Subar.app"
+APP="$DIST/Sugarcane.app"
 
 if ! command -v swiftc >/dev/null; then
   echo "swiftc not found. Install the command-line tools with: xcode-select --install"
@@ -37,31 +37,39 @@ rm -rf "$DIST" "$BUILD"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$BUILD"
 
 # 1. Compile for Apple silicon and Intel, then merge into one universal binary
-echo "Compiling Subar $VERSION (Apple silicon + Intel)…"
+echo "Compiling Sugarcane $VERSION (Apple silicon + Intel)…"
 for arch in arm64 x86_64; do
-  swiftc -O -parse-as-library -target "$arch-apple-macos$MIN_MACOS" subar.swift -o "$BUILD/Subar-$arch"
+  swiftc -O -parse-as-library -target "$arch-apple-macos$MIN_MACOS" sugarcane.swift -o "$BUILD/Sugarcane-$arch"
 done
-lipo -create "$BUILD/Subar-arm64" "$BUILD/Subar-x86_64" -output "$APP/Contents/MacOS/Subar"
+lipo -create "$BUILD/Sugarcane-arm64" "$BUILD/Sugarcane-x86_64" -output "$APP/Contents/MacOS/Sugarcane"
 
-# 2. App icon: a green reading dot with a trend arrow on a dark tile
+# 2. App icon: a green cane stalk with an amber leaf on a molasses-brown tile
 echo "Making the icon…"
 cat > "$BUILD/icon.swift" <<'EOF'
 import AppKit
 let side: CGFloat = 1024
 let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
     let tile = NSBezierPath(roundedRect: rect.insetBy(dx: 100, dy: 100), xRadius: 185, yRadius: 185)
-    NSGradient(starting: NSColor(calibratedRed: 0.17, green: 0.18, blue: 0.21, alpha: 1),
-               ending: NSColor(calibratedRed: 0.07, green: 0.08, blue: 0.09, alpha: 1))!.draw(in: tile, angle: -90)
-    NSColor(calibratedRed: 0.19, green: 0.82, blue: 0.35, alpha: 1).setFill()
-    NSBezierPath(ovalIn: NSRect(x: 270, y: 382, width: 260, height: 260)).fill()
-    let arrow = NSBezierPath()
-    arrow.lineWidth = 58
-    arrow.lineCapStyle = .round
-    arrow.lineJoinStyle = .round
-    arrow.move(to: NSPoint(x: 600, y: 512)); arrow.line(to: NSPoint(x: 770, y: 512))
-    arrow.move(to: NSPoint(x: 690, y: 592)); arrow.line(to: NSPoint(x: 770, y: 512)); arrow.line(to: NSPoint(x: 690, y: 432))
-    NSColor.white.setStroke()
-    arrow.stroke()
+    NSGradient(starting: NSColor(srgbRed: 0.22, green: 0.16, blue: 0.11, alpha: 1),
+               ending: NSColor(srgbRed: 0.10, green: 0.07, blue: 0.05, alpha: 1))!.draw(in: tile, angle: -90)
+    // A leaning cane stalk in four jointed sections, with one leaf
+    let transform = NSAffineTransform()
+    transform.translateX(by: 512, yBy: 512)
+    transform.rotate(byDegrees: -14)
+    transform.concat()
+    let green = NSColor(srgbRed: 0.651, green: 0.812, blue: 0.353, alpha: 1)
+    green.setFill()
+    for i in 0..<4 {
+        NSBezierPath(roundedRect: NSRect(x: -52, y: -300 + CGFloat(i) * 152, width: 104, height: 136),
+                     xRadius: 30, yRadius: 30).fill()
+    }
+    let leaf = NSBezierPath()
+    leaf.move(to: NSPoint(x: 52, y: 150))
+    leaf.curve(to: NSPoint(x: 290, y: 330), controlPoint1: NSPoint(x: 150, y: 170), controlPoint2: NSPoint(x: 250, y: 240))
+    leaf.curve(to: NSPoint(x: 52, y: 230), controlPoint1: NSPoint(x: 190, y: 310), controlPoint2: NSPoint(x: 110, y: 280))
+    leaf.close()
+    NSColor(srgbRed: 0.941, green: 0.706, blue: 0.271, alpha: 1).setFill()
+    leaf.fill()
     return true
 }
 let rep = NSBitmapImageRep(data: image.tiffRepresentation!)!
@@ -87,10 +95,10 @@ cat > "$APP/Contents/Info.plist" <<EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>Subar</string>
-  <key>CFBundleDisplayName</key><string>Subar</string>
+  <key>CFBundleName</key><string>Sugarcane</string>
+  <key>CFBundleDisplayName</key><string>Sugarcane</string>
   <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
-  <key>CFBundleExecutable</key><string>Subar</string>
+  <key>CFBundleExecutable</key><string>Sugarcane</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$VERSION</string>
@@ -117,21 +125,24 @@ echo "Building the installer…"
 PKGROOT="$BUILD/pkgroot"
 SCRIPTS="$BUILD/scripts"
 mkdir -p "$PKGROOT/Applications" "$SCRIPTS"
-ditto "$APP" "$PKGROOT/Applications/Subar.app"
+ditto "$APP" "$PKGROOT/Applications/Sugarcane.app"
 
 # Quit a running copy before upgrading
 cat > "$SCRIPTS/preinstall" <<'EOF'
 #!/bin/bash
+pkill -x Sugarcane 2>/dev/null || true
+# The app was called Subar before: remove that copy so only one opens at login
 pkill -x Subar 2>/dev/null || true
+rm -rf /Applications/Subar.app
 exit 0
 EOF
-# Open Subar for the person who ran the installer, so the sign-in panel appears right away
+# Open Sugarcane for the person who ran the installer, so the sign-in panel appears right away
 cat > "$SCRIPTS/postinstall" <<'EOF'
 #!/bin/bash
 console_user=$(stat -f%Su /dev/console)
 if [[ -n "$console_user" && "$console_user" != "root" ]]; then
   uid=$(id -u "$console_user")
-  launchctl asuser "$uid" sudo -u "$console_user" open -a "/Applications/Subar.app" || true
+  launchctl asuser "$uid" sudo -u "$console_user" open -a "/Applications/Sugarcane.app" || true
 fi
 exit 0
 EOF
@@ -143,13 +154,13 @@ plutil -replace 0.BundleIsRelocatable -bool NO "$BUILD/components.plist"
 
 pkgbuild --root "$PKGROOT" --install-location / --component-plist "$BUILD/components.plist" \
   --scripts "$SCRIPTS" --identifier "$BUNDLE_ID.pkg" --version "$VERSION" \
-  "$BUILD/Subar-component.pkg" >/dev/null
+  "$BUILD/Sugarcane-component.pkg" >/dev/null
 
-PKG="$DIST/Subar-$VERSION.pkg"
+PKG="$DIST/Sugarcane-$VERSION.pkg"
 if [[ -n "$INSTALLER_ID" ]]; then
-  productbuild --package "$BUILD/Subar-component.pkg" --sign "$INSTALLER_ID" --timestamp "$PKG" >/dev/null
+  productbuild --package "$BUILD/Sugarcane-component.pkg" --sign "$INSTALLER_ID" --timestamp "$PKG" >/dev/null
 else
-  productbuild --package "$BUILD/Subar-component.pkg" "$PKG" >/dev/null
+  productbuild --package "$BUILD/Sugarcane-component.pkg" "$PKG" >/dev/null
 fi
 
 # 6. Notarize (only with an Apple Developer account)
@@ -160,12 +171,12 @@ if [[ -n "$NOTARY_PROFILE" && -n "$INSTALLER_ID" ]]; then
 fi
 
 # 7. A plain zip of the app as an alternative download
-ditto -c -k --keepParent "$APP" "$DIST/Subar-$VERSION.zip"
+ditto -c -k --keepParent "$APP" "$DIST/Sugarcane-$VERSION.zip"
 
 echo
 echo "Done:"
 echo "  $PKG   ← share this one: double-click to install"
-echo "  $DIST/Subar-$VERSION.zip"
+echo "  $DIST/Sugarcane-$VERSION.zip"
 if [[ -z "$INSTALLER_ID" ]]; then
   echo
   echo "This build isn't signed with an Apple Developer ID, so macOS will warn people the"

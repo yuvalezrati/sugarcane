@@ -1,4 +1,4 @@
-// Subar — your Dexcom glucose in the macOS menu bar.
+// Sugarcane — your Dexcom glucose in the macOS menu bar.
 //
 // Reads from Dexcom Share, the service behind the Dexcom Follow app. On first launch
 // each user signs in with their own Dexcom account; nothing is built into the app.
@@ -10,9 +10,9 @@
 // Click it for a panel with the details, a 1, 3 or 6 hour graph and stats for that period.
 //
 // Settings (units, thresholds, menu bar style) are changed from the panel's settings page.
-// They live in ~/Library/Application Support/Subar/config.json and are re-read on every refresh.
+// They live in ~/Library/Application Support/Sugarcane/config.json and are re-read on every refresh.
 //
-// Build the downloadable app:  ./scripts/build-app.sh   (makes dist/Subar.app and dist/Subar-<version>.pkg)
+// Build the downloadable app:  ./scripts/build-app.sh   (makes dist/Sugarcane.app and dist/Sugarcane-<version>.pkg)
 // Developer build + run:       ./scripts/dev-install.sh
 // Requires macOS 12+. No dependencies beyond macOS itself.
 
@@ -54,11 +54,14 @@ struct Config: Codable, Equatable {
 }
 
 let CONFIG_DIR = FileManager.default.homeDirectoryForCurrentUser
-    .appendingPathComponent("Library/Application Support/Subar", isDirectory: true)
+    .appendingPathComponent("Library/Application Support/Sugarcane", isDirectory: true)
 let CONFIG_URL = CONFIG_DIR.appendingPathComponent("config.json")
-// Settings from before the rename (GlucoseBar) are copied over on first launch.
-let LEGACY_CONFIG_URL = FileManager.default.homeDirectoryForCurrentUser
-    .appendingPathComponent("Library/Application Support/GlucoseBar/config.json")
+// The app was called Subar, and GlucoseBar before that. Settings saved under an old
+// name are copied over on first launch.
+let LEGACY_CONFIG_URLS = ["Subar", "GlucoseBar"].map {
+    FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/\($0)/config.json")
+}
 
 let GRAPH_HOUR_CHOICES = [1, 3, 6]
 let MENU_BAR_STYLES: [(name: String, label: String)] = [
@@ -128,6 +131,44 @@ func directionFromDelta(_ deltaPer5Min: Double) -> String {
     if rate >= -2 { return "FortyFiveDown" }
     if rate >= -3 { return "SingleDown" }
     return "DoubleDown"
+}
+
+// MARK: - Theme (the panel's molasses look; the menu bar keeps the system colors)
+
+enum Theme {
+    static let panel = NSColor(srgbRed: 0.141, green: 0.102, blue: 0.071, alpha: 1)       // molasses brown
+    static let text = NSColor(srgbRed: 0.965, green: 0.918, blue: 0.847, alpha: 1)        // raw sugar
+    static let secondary = NSColor(srgbRed: 0.753, green: 0.667, blue: 0.549, alpha: 1)
+    static let accent = NSColor(srgbRed: 0.941, green: 0.706, blue: 0.271, alpha: 1)      // amber syrup; also "high"
+    static let inRange = NSColor(srgbRed: 0.651, green: 0.812, blue: 0.353, alpha: 1)     // cane green
+    static let low = NSColor(srgbRed: 1.0, green: 0.541, blue: 0.451, alpha: 1)
+    static let tile = NSColor(srgbRed: 1.0, green: 0.863, blue: 0.627, alpha: 0.08)
+    static let dark = NSAppearance(named: .darkAqua)
+
+    static func color(_ v: Double, _ cfg: Config) -> NSColor {
+        v < cfg.low ? low : v > cfg.high ? accent : inRange
+    }
+}
+
+/// Root view of both panels: paints the whole popover, its arrow included, in the theme's brown.
+final class PanelView: NSView {
+    private weak var backdrop: NSView?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let frame = window?.contentView?.superview, backdrop?.superview !== frame else { return }
+        let view = NSView(frame: frame.bounds)
+        view.wantsLayer = true
+        view.layer?.backgroundColor = Theme.panel.cgColor
+        view.autoresizingMask = [.width, .height]
+        frame.addSubview(view, positioned: .below, relativeTo: nil)
+        backdrop = view
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        Theme.panel.setFill()
+        bounds.fill()
+    }
 }
 
 // MARK: - Formatting helpers
@@ -265,23 +306,20 @@ final class GraphView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let secondary: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.secondaryLabelColor]
+            .font: NSFont.systemFont(ofSize: 12), .foregroundColor: Theme.secondary]
 
-        // Target band and its edges
-        let bandTop = y(high), bandBottom = y(low)
-        NSColor.systemGreen.withAlphaComponent(0.12).setFill()
-        NSRect(x: plot.minX, y: bandTop, width: plot.width, height: bandBottom - bandTop).fill()
-        for edge in [bandTop, bandBottom] {
+        // Edges of the target range
+        for edge in [y(high), y(low)] {
             let line = NSBezierPath()
             line.move(to: NSPoint(x: plot.minX, y: edge))
             line.line(to: NSPoint(x: plot.maxX, y: edge))
             line.setLineDash([3, 4], count: 2, phase: 0)
             line.lineWidth = 1
-            NSColor.labelColor.withAlphaComponent(0.15).setStroke()
+            Theme.text.withAlphaComponent(0.25).setStroke()
             line.stroke()
         }
 
-        // Signal-loss gap: orange hatching from the last reading to now
+        // Signal-loss gap: hatching from the last reading to now
         if let gapFrom {
             let gx = min(x(gapFrom) + 4, plot.maxX)
             let gap = NSRect(x: gx, y: plot.minY - 4, width: plot.maxX - gx, height: plot.height + 8)
@@ -296,13 +334,13 @@ final class GraphView: NSView {
                     hx += 6
                 }
                 hatch.lineWidth = 1.5
-                NSColor.systemOrange.withAlphaComponent(0.35).setStroke()
+                Theme.secondary.withAlphaComponent(0.4).setStroke()
                 hatch.stroke()
                 NSGraphicsContext.restoreGraphicsState()
                 if gap.width > 50 {
                     let label = NSAttributedString(string: "no signal", attributes: [
                         .font: NSFont.systemFont(ofSize: 10, weight: .medium),
-                        .foregroundColor: NSColor.systemOrange])
+                        .foregroundColor: Theme.secondary])
                     label.draw(at: NSPoint(x: gap.midX - label.size().width / 2, y: gap.minY + 2))
                 }
             }
@@ -314,40 +352,41 @@ final class GraphView: NSView {
         let nowLabel = NSAttributedString(string: "now", attributes: secondary)
         nowLabel.draw(at: NSPoint(x: plot.maxX - nowLabel.size().width, y: bounds.height - axisHeight + 2))
 
-        guard !points.isEmpty else {
+        guard let first = points.first, let lastPoint = points.last else {
             NSAttributedString(string: "No readings in this period", attributes: secondary)
                 .draw(at: NSPoint(x: inset, y: 2))
             return
         }
 
-        // Line, then dots
-        let path = NSBezierPath()
+        // Amber line with the area under it filled, like poured syrup
+        let line = NSBezierPath()
         for (i, p) in points.enumerated() {
             let pt = NSPoint(x: x(p.date), y: y(p.value))
-            if i == 0 { path.move(to: pt) } else { path.line(to: pt) }
+            if i == 0 { line.move(to: pt) } else { line.line(to: pt) }
         }
-        path.lineWidth = 1.5
-        path.lineJoinStyle = .round
-        NSColor.labelColor.withAlphaComponent(0.3).setStroke()
-        path.stroke()
+        let area = line.copy() as! NSBezierPath
+        area.line(to: NSPoint(x: x(lastPoint.date), y: plot.maxY))
+        area.line(to: NSPoint(x: x(first.date), y: plot.maxY))
+        area.close()
+        Theme.accent.withAlphaComponent(0.16).setFill()
+        area.fill()
+        line.lineWidth = 2.5
+        line.lineJoinStyle = .round
+        line.lineCapStyle = .round
+        Theme.accent.setStroke()
+        line.stroke()
 
+        // A dot on the hovered (or latest) reading, and its readout above the graph
         let selected = hovered ?? points.count - 1
-        for (i, p) in points.enumerated() {
-            // Longer periods pack more readings in, so the dots get smaller.
-            let small: CGFloat = hours == 1 ? 3.5 : hours == 3 ? 2.5 : 1.8
-            let r: CGFloat = i == selected ? small + 2 : small
-            let dot = NSBezierPath(ovalIn: NSRect(x: x(p.date) - r, y: y(p.value) - r, width: r * 2, height: r * 2))
-            p.color.setFill()
-            dot.fill()
-            if i == selected {
-                dot.lineWidth = 1.5
-                NSColor.labelColor.withAlphaComponent(0.8).setStroke()
-                dot.stroke()
-            }
-        }
-
-        // Readout for the hovered (or latest) reading
         let p = points[selected]
+        let r: CGFloat = 5
+        let dot = NSBezierPath(ovalIn: NSRect(x: x(p.date) - r, y: y(p.value) - r, width: r * 2, height: r * 2))
+        p.color.setFill()
+        dot.fill()
+        dot.lineWidth = 1.5
+        Theme.text.setStroke()
+        dot.stroke()
+
         let time = fmtClock(p.date)
         let latestLabel = gapFrom == nil ? "Latest" : "Last reading"
         NSAttributedString(string: selected == points.count - 1 ? "\(latestLabel) · \(time)" : time,
@@ -363,8 +402,8 @@ final class GraphView: NSView {
 // MARK: - Keychain (each user's own Dexcom password)
 
 enum Keychain {
-    static let service = "Subar.Dexcom"
-    static let legacyService = "GlucoseBar.Dexcom"   // before the rename
+    static let service = "Sugarcane.Dexcom"
+    static let legacyServices = ["Subar.Dexcom", "GlucoseBar.Dexcom"]   // before the renames
 
     private static func query(_ account: String, service: String = Keychain.service) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
@@ -393,16 +432,21 @@ enum Keychain {
     static func load(account: String) -> String? {
         if let password = read(account, service: service) { return password }
         // Move a password saved before the rename to the new name.
-        guard let old = read(account, service: legacyService) else { return nil }
-        if save(old, account: account) {
-            SecItemDelete(query(account, service: legacyService) as CFDictionary)
+        for legacy in legacyServices {
+            guard let old = read(account, service: legacy) else { continue }
+            if save(old, account: account) {
+                SecItemDelete(query(account, service: legacy) as CFDictionary)
+            }
+            return old
         }
-        return old
+        return nil
     }
 
     static func delete(account: String) {
         SecItemDelete(query(account) as CFDictionary)
-        SecItemDelete(query(account, service: legacyService) as CFDictionary)
+        for legacy in legacyServices {
+            SecItemDelete(query(account, service: legacy) as CFDictionary)
+        }
     }
 }
 
@@ -562,7 +606,7 @@ final class LoginViewController: NSViewController {
     private let errorLabel = NSTextField(wrappingLabelWithString: "")
     private let spinner = NSProgressIndicator()
     private let signInButton = NSButton(title: "Sign In", target: nil, action: nil)
-    private let quitButton = NSButton(title: "Quit Subar", target: nil, action: nil)
+    private let quitButton = NSButton(title: "Quit Sugarcane", target: nil, action: nil)
     private let contentWidth: CGFloat = 280
 
     init(username: String, region: String) {
@@ -641,7 +685,8 @@ final class LoginViewController: NSViewController {
         }
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        let container = NSView()
+        let container = PanelView()
+        container.appearance = Theme.dark
         container.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: container.topAnchor),
@@ -729,12 +774,12 @@ struct DashboardModel {
     var configError: String?
     var placeholder: String?          // shown instead of the reading while there's no data
     var value: String?
-    var valueColor = NSColor.labelColor
+    var valueColor = Theme.text
     var arrow = ""
     var units = "mg/dL"
     var subtitle = ""
     var state = ""
-    var stateColor = NSColor.systemGreen
+    var stateColor = Theme.inRange
     var message: String?              // couldn't reach Dexcom
     var hint: String?                 // signal loss advice
     var points: [GraphView.Point] = []
@@ -756,7 +801,7 @@ struct DashboardModel {
 /// The outlined "In range" / "High" / "Signal loss" label.
 final class PillView: NSView {
     var text = "" { didSet { invalidateIntrinsicContentSize(); needsDisplay = true } }
-    var color = NSColor.systemGreen { didSet { needsDisplay = true } }
+    var color = Theme.inRange { didSet { needsDisplay = true } }
 
     private var attributed: NSAttributedString {
         NSAttributedString(string: text, attributes: [
@@ -785,7 +830,7 @@ final class StatTile: NSView {
         super.init(frame: .zero)
         let titleLabel = NSTextField(labelWithString: title)
         titleLabel.font = .systemFont(ofSize: 11)
-        titleLabel.textColor = .secondaryLabelColor
+        titleLabel.textColor = Theme.secondary
         let stack = NSStackView(views: [titleLabel, valueLabel])
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -814,7 +859,7 @@ final class StatTile: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.labelColor.withAlphaComponent(0.06).setFill()
+        Theme.tile.setFill()
         NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8).fill()
     }
 }
@@ -924,23 +969,24 @@ final class DashboardViewController: NSViewController {
     private let accountLabel = NSTextField(labelWithString: "")
 
     override func loadView() {
-        for (label, color) in [(warningLabel, NSColor.systemOrange), (messageLabel, .systemOrange),
-                               (hintLabel, .secondaryLabelColor), (placeholderLabel, .labelColor)] {
+        for (label, color) in [(warningLabel, Theme.accent), (messageLabel, Theme.accent),
+                               (hintLabel, Theme.secondary), (placeholderLabel, Theme.text)] {
             label.font = .systemFont(ofSize: label === placeholderLabel ? 13 : 11)
             label.textColor = color
             label.preferredMaxLayoutWidth = contentWidth
         }
         subtitleLabel.font = .systemFont(ofSize: 12)
-        subtitleLabel.textColor = .secondaryLabelColor
+        subtitleLabel.textColor = Theme.secondary
         periodLabel.font = .systemFont(ofSize: 11, weight: .semibold)
-        periodLabel.textColor = .secondaryLabelColor
+        periodLabel.textColor = Theme.secondary
         nextCheckLabel.font = .systemFont(ofSize: 11)
-        nextCheckLabel.textColor = .secondaryLabelColor
+        nextCheckLabel.textColor = Theme.secondary
 
         let header = row([valueLabel, spacer(), pill])
         header.alignment = .centerY
 
         periodSwitch.controlSize = .small
+        periodSwitch.selectedSegmentBezelColor = Theme.accent
         periodSwitch.target = self
         periodSwitch.action = #selector(periodChanged)
         let periodRow = row([periodLabel, spacer(), periodSwitch])
@@ -956,7 +1002,7 @@ final class DashboardViewController: NSViewController {
         let footer = row([nextCheckLabel, spacer(),
                           iconButton("arrow.clockwise", "Refresh", #selector(refresh)),
                           iconButton("slider.horizontal.3", "Settings", #selector(toggleSettings)),
-                          iconButton("power", "Quit Subar", #selector(quit))])
+                          iconButton("power", "Quit Sugarcane", #selector(quit))])
 
         dataViews = [header, subtitleLabel, periodRow, graph, tiles]
         fill(mainStack, [warningLabel, placeholderLabel, header, subtitleLabel, messageLabel,
@@ -973,7 +1019,8 @@ final class DashboardViewController: NSViewController {
         stack.setCustomSpacing(6, after: divider)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        let container = NSView()
+        let container = PanelView()
+        container.appearance = Theme.dark
         container.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: container.topAnchor),
@@ -998,6 +1045,7 @@ final class DashboardViewController: NSViewController {
     private func buildSettings() {
         let title = NSTextField(labelWithString: "Settings")
         title.font = .systemFont(ofSize: 15, weight: .semibold)
+        title.textColor = Theme.text
         let done = smallButton("Done", #selector(toggleSettings))
         done.keyEquivalent = "\r"
 
@@ -1011,16 +1059,16 @@ final class DashboardViewController: NSViewController {
         }
         let rangeCaption = NSTextField(labelWithString: "TARGET RANGE")
         rangeCaption.font = .systemFont(ofSize: 11, weight: .semibold)
-        rangeCaption.textColor = .secondaryLabelColor
+        rangeCaption.textColor = Theme.secondary
         settingsError.font = .systemFont(ofSize: 11)
-        settingsError.textColor = .systemRed
+        settingsError.textColor = Theme.low
         settingsError.preferredMaxLayoutWidth = contentWidth
         settingsError.isHidden = true
 
         openAtLoginBox.target = self
         openAtLoginBox.action = #selector(toggleOpenAtLogin)
         accountLabel.font = .systemFont(ofSize: 11)
-        accountLabel.textColor = .secondaryLabelColor
+        accountLabel.textColor = Theme.secondary
         accountLabel.lineBreakMode = .byTruncatingMiddle
         accountLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let accountDivider = NSBox()
@@ -1046,6 +1094,7 @@ final class DashboardViewController: NSViewController {
     private func settingLabel(_ text: String) -> NSTextField {
         let label = NSTextField(labelWithString: text)
         label.font = .systemFont(ofSize: 13)
+        label.textColor = Theme.text
         return label
     }
 
@@ -1075,7 +1124,7 @@ final class DashboardViewController: NSViewController {
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)) ?? NSImage()
         let button = NSButton(image: image, target: self, action: action)
         button.isBordered = false
-        button.contentTintColor = .labelColor
+        button.contentTintColor = Theme.text
         button.toolTip = label
         button.setAccessibilityLabel(label)
         button.widthAnchor.constraint(equalToConstant: 30).isActive = true
@@ -1118,10 +1167,10 @@ final class DashboardViewController: NSViewController {
                 .font: NSFont.monospacedDigitSystemFont(ofSize: 40, weight: .bold), .foregroundColor: m.valueColor])
             if !m.arrow.isEmpty {
                 s.append(NSAttributedString(string: " " + m.arrow, attributes: [
-                    .font: NSFont.systemFont(ofSize: 22), .foregroundColor: NSColor.labelColor]))
+                    .font: NSFont.systemFont(ofSize: 22), .foregroundColor: Theme.text]))
             }
             s.append(NSAttributedString(string: "  " + m.units, attributes: [
-                .font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.secondaryLabelColor]))
+                .font: NSFont.systemFont(ofSize: 13), .foregroundColor: Theme.secondary]))
             valueLabel.attributedStringValue = s
             pill.text = m.state
             pill.color = m.stateColor
@@ -1137,9 +1186,9 @@ final class DashboardViewController: NSViewController {
             graph.gapFrom = m.gapFrom
             graph.points = m.points
 
-            averageTile.set([(m.average, .labelColor)])
-            inRangeTile.set([(m.inRange, .systemGreen)])
-            outsideTile.set([(m.lowShare, .systemRed), (" · ", .secondaryLabelColor), (m.highShare, .systemYellow)])
+            averageTile.set([(m.average, Theme.text)])
+            inRangeTile.set([(m.inRange, Theme.inRange)])
+            outsideTile.set([(m.lowShare, Theme.low), (" · ", Theme.secondary), (m.highShare, Theme.accent)])
         }
         resize()
     }
@@ -1223,6 +1272,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.target = self
         statusItem.button?.action = #selector(statusItemClicked)
         dashPopover.behavior = .transient
+        dashPopover.appearance = Theme.dark
+        loginPopover.appearance = Theme.dark
         dashPopover.contentViewController = dashboard
         dashboard.onRefresh = { [weak self] in self?.refresh() }
         dashboard.onQuit = { NSApp.terminate(nil) }
@@ -1258,7 +1309,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let key = "didSetUpOpenAtLogin"
         guard !UserDefaults.standard.bool(forKey: key) else { return }
         UserDefaults.standard.set(true, forKey: key)
-        do { try SMAppService.mainApp.register() } catch { NSLog("Subar: Open at Login failed: \(error)") }
+        do { try SMAppService.mainApp.register() } catch { NSLog("Sugarcane: Open at Login failed: \(error)") }
     }
 
     @objc private func toggleOpenAtLogin() {
@@ -1270,7 +1321,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try SMAppService.mainApp.register()
             }
         } catch {
-            NSLog("Subar: changing Open at Login failed: \(error)")
+            NSLog("Sugarcane: changing Open at Login failed: \(error)")
         }
         render()
     }
@@ -1282,8 +1333,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             if !fm.fileExists(atPath: CONFIG_URL.path) {
                 try fm.createDirectory(at: CONFIG_DIR, withIntermediateDirectories: true)
-                if fm.fileExists(atPath: LEGACY_CONFIG_URL.path) {
-                    try fm.copyItem(at: LEGACY_CONFIG_URL, to: CONFIG_URL)
+                if let old = LEGACY_CONFIG_URLS.first(where: { fm.fileExists(atPath: $0.path) }) {
+                    try fm.copyItem(at: old, to: CONFIG_URL)
                 } else {
                     try saveConfig(Config())
                 }
@@ -1536,7 +1587,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Not signed in, or the saved password stopped working: the item opens the sign-in panel.
         if needsLogin || authError != nil {
             setStatus(color: gray, text: nil, hollow: true)
-            statusItem.button?.setAccessibilityLabel("Subar: sign in to Dexcom")
+            statusItem.button?.setAccessibilityLabel("Sugarcane: sign in to Dexcom")
             dashPopover.performClose(nil)
             return
         }
@@ -1580,9 +1631,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             setStatus(color: gray, text: "\(fmtBG(bg, units)) · \(minutes)m", signalLoss: true)
             statusItem.button?.setAccessibilityLabel(
                 "Signal loss. Last reading \(fmtBG(bg, units)) \(units), \(minutes) minutes ago")
-            model.valueColor = gray
+            model.valueColor = Theme.secondary
             model.state = "Signal loss"
-            model.stateColor = .systemOrange
+            model.stateColor = Theme.accent
             model.subtitle = "No new reading since \(fmtClock(latest.date))  ·  \(fmtAge(age))"
             model.hint = "Keep your phone near you with the Dexcom app open. "
                 + "Missed readings fill in when the signal returns."
@@ -1591,9 +1642,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let barText = "\(fmtBG(bg, units)) \(arrow)".trimmingCharacters(in: .whitespaces)
             setStatus(color: color, text: barText)
             statusItem.button?.setAccessibilityLabel("Glucose \(fmtBG(bg, units)) \(units), \(trendText), \(state)")
-            model.valueColor = color
+            model.valueColor = Theme.color(bg, cfg)
             model.state = state
-            model.stateColor = color
+            model.stateColor = Theme.color(bg, cfg)
             let deltaText = fmtDelta(delta, units)
             model.subtitle = (deltaText.isEmpty ? "" : "\(deltaText) \(units)  ·  ") + fmtAge(age)
         }
@@ -1612,7 +1663,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 pointArrow = TREND_ARROWS[directionFromDelta(r.sgv - all[i - 1].sgv)] ?? ""
             }
             model.points.append(GraphView.Point(date: r.date, value: r.sgv, arrow: pointArrow,
-                                                color: rangeState(r.sgv, cfg).1))
+                                                color: Theme.color(r.sgv, cfg)))
         }
         if !period.isEmpty {
             let count = Double(period.count)
@@ -1639,13 +1690,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-struct SubarMain {
+struct SugarcaneMain {
     @MainActor
     static func main() {
-        // Only one Subar at a time (e.g. the downloaded app and a developer build).
+        // Only one Sugarcane at a time (e.g. the downloaded app and a developer build).
         let me = ProcessInfo.processInfo.processIdentifier
         if NSWorkspace.shared.runningApplications.contains(where: {
-            $0.localizedName == "Subar" && $0.processIdentifier != me
+            $0.localizedName == "Sugarcane" && $0.processIdentifier != me
         }) {
             exit(0)
         }
@@ -1659,10 +1710,10 @@ struct SubarMain {
         // ⌘V / ⌘C / ⌘A work in the sign-in fields.
         let mainMenu = NSMenu()
         let appItem = NSMenuItem()
-        let appMenu = NSMenu(title: "Subar")
+        let appMenu = NSMenu(title: "Sugarcane")
         for (title, selector, key) in [("Refresh", #selector(AppDelegate.refreshNow), "r"),
                                        ("Settings…", #selector(AppDelegate.openSettings), ","),
-                                       ("Quit Subar", #selector(AppDelegate.quit), "q")] {
+                                       ("Quit Sugarcane", #selector(AppDelegate.quit), "q")] {
             appMenu.addItem(withTitle: title, action: selector, keyEquivalent: key).target = delegate
         }
         appItem.submenu = appMenu
