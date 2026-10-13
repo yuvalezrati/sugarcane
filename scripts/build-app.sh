@@ -17,7 +17,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-1.3.2}"
+VERSION="${VERSION:-1.3.3}"
 BUNDLE_ID="${BUNDLE_ID:-io.github.yuvalezrati.sugarcane}"
 MIN_MACOS="12.0"
 DEVELOPER_ID="${DEVELOPER_ID:-}"
@@ -57,7 +57,7 @@ let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { r
     transform.translateX(by: 512, yBy: 512)
     transform.rotate(byDegrees: -14)
     transform.concat()
-    let green = NSColor(srgbRed: 0.651, green: 0.812, blue: 0.353, alpha: 1)
+    let green = NSColor(srgbRed: 0.204, green: 0.780, blue: 0.349, alpha: 1)
     green.setFill()
     for i in 0..<4 {
         NSBezierPath(roundedRect: NSRect(x: -52, y: -300 + CGFloat(i) * 152, width: 104, height: 136),

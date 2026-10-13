@@ -132,17 +132,17 @@ func directionFromDelta(_ deltaPer5Min: Double) -> String {
     return "DoubleDown"
 }
 
-// MARK: - Theme (the panel's dark, cane-green look; the menu bar keeps the system colors)
+// MARK: - Theme (one set of colors for the menu bar item and the panel)
 
 enum Theme {
     static let panel = NSColor(srgbRed: 0.071, green: 0.063, blue: 0.055, alpha: 1)       // near-black, slightly warm
     static let ink = NSColor(srgbRed: 0.071, green: 0.063, blue: 0.055, alpha: 1)         // text on green
     static let text = NSColor(srgbRed: 0.965, green: 0.918, blue: 0.847, alpha: 1)        // raw sugar
     static let secondary = NSColor(srgbRed: 0.753, green: 0.667, blue: 0.549, alpha: 1)
-    static let inRange = NSColor(srgbRed: 0.651, green: 0.812, blue: 0.353, alpha: 1)     // cane green
+    static let inRange = NSColor(srgbRed: 0.204, green: 0.780, blue: 0.349, alpha: 1)     // green, readable on a light menu bar too
     static let accent = inRange                                                           // switches, buttons, the graph line
     static let high = NSColor(srgbRed: 0.941, green: 0.706, blue: 0.271, alpha: 1)        // amber: high readings, warnings
-    static let low = NSColor(srgbRed: 1.0, green: 0.541, blue: 0.451, alpha: 1)
+    static let low = NSColor(srgbRed: 1.0, green: 0.271, blue: 0.227, alpha: 1)
     static let tile = NSColor(srgbRed: 1.0, green: 0.863, blue: 0.627, alpha: 0.10)
     static let dark = NSAppearance(named: .darkAqua)
 
@@ -197,13 +197,14 @@ func fmtClock(_ date: Date, seconds: Bool = false) -> String {
     return f.string(from: date)
 }
 
-/// Label for the dropdown and the color for the menu bar.
+/// Label for the panel and the color for the menu bar (the same colors the panel uses).
 func rangeState(_ v: Double, _ cfg: Config) -> (String, NSColor) {
-    if v < cfg.urgentLow { return ("URGENT LOW", .systemRed) }
-    if v < cfg.low { return ("Low", .systemRed) }
-    if v > cfg.urgentHigh { return ("URGENT HIGH", .systemYellow) }
-    if v > cfg.high { return ("High", .systemYellow) }
-    return ("In range", .systemGreen)
+    let color = Theme.color(v, cfg)
+    if v < cfg.urgentLow { return ("URGENT LOW", color) }
+    if v < cfg.low { return ("Low", color) }
+    if v > cfg.urgentHigh { return ("URGENT HIGH", color) }
+    if v > cfg.high { return ("High", color) }
+    return ("In range", color)
 }
 
 func dotImage(_ color: NSColor, hollow: Bool = false) -> NSImage {
